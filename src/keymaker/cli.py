@@ -1,4 +1,4 @@
-"""CLI principal de Keymaker — Gestor de cifrado e integridad de paquetes de examen."""
+"""CLI principal de Keymaker — Gestor de cifrado, integridad y repositorio de confianza de exámenes."""
 
 from __future__ import annotations
 
@@ -28,14 +28,30 @@ from keymaker.core.crypto import (
 from keymaker.core.doctor import ejecutar_diagnostico_doctor
 from keymaker.core.entropy import auditar_frase_paso
 from keymaker.core.shamir import combinar_partes, dividir_secreto
+from keymaker.core.trust import (
+    TrustStore,
+    agregar_revocacion_a_crl,
+    calcular_fingerprint_clave,
+    inicializar_repo_confianza,
+    sincronizar_desde_github,
+)
 
 app = typer.Typer(
     name="keymaker",
-    help="🔐 Keymaker — Gestor de cifrado simétrico autenticado (AES-GCM), firmas Ed25519 y Time-Lock para exámenes.",
+    help="🔐 Keymaker — Gestor de cifrado simétrico autenticado (AES-GCM), firmas Ed25519, Time-Lock y Trust Store.",
     no_args_is_help=True,
 )
+trust_app = typer.Typer(
+    name="trust",
+    help="🛡️ Gestión de claves públicas autorizadas y Lista de Revocación (CRL) en GitHub.",
+    no_args_is_help=True,
+)
+app.add_typer(trust_app, name="trust")
+
 console = Console()
 err_console = Console(stderr=True)
+
+DEFAULT_TRUST_DIR = Path.home() / ".keymaker" / "trust"
 
 
 def version_callback(value: bool):
@@ -111,6 +127,7 @@ def cmd_unpack(
     legajo: Optional[str] = typer.Option(None, "--legajo", "-l", help="Legajo de estudiante para derivación HKDF."),
     verify_key: Optional[Path] = typer.Option(None, "--verify-key", "-v", help="Clave pública Ed25519 (.pub) para verificar la firma."),
     force_unlock: bool = typer.Option(False, "--force", "-f", help="Forzar desbloqueo docente omitiendo el Time-Lock."),
+    trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", help="Directorio del Trust Store para verificar revocaciones."),
 ) -> None:
     """Descifra, verifica la integridad y extrae el contenido de un bundle (.ripkg.enc)."""
     pub_pem: Optional[bytes] = None
@@ -119,6 +136,13 @@ def cmd_unpack(
             err_console.print(f"[bold red]No existe la clave pública: {verify_key}[/bold red]")
             raise typer.Exit(code=1)
         pub_pem = verify_key.read_bytes()
+
+        # Comprobar si la clave está revocada
+        store = TrustStore(trust_dir)
+        revocada, rec = store.esta_revocada(key_id=verify_key.stem, public_key_pem=pub_pem)
+        if revocada and rec:
+            err_console.print(f"[bold red]❌ CLAVE REVOCADA:[/bold red] La clave {rec.key_id} fue revocada el {rec.revoked_at_utc}. Motivo: {rec.reason}")
+            raise typer.Exit(code=1)
 
     try:
         plaintext, meta = desempaquetar_bundle_cifrado(
@@ -158,7 +182,6 @@ def cmd_gen_keys(
 
     priv_file.write_bytes(priv_pem)
     pub_file.write_bytes(pub_pem)
-    # Permisos seguros para la clave privada (chmod 600)
     try:
         os.chmod(priv_file, 0o600)
     except Exception:
@@ -190,11 +213,19 @@ def cmd_verify(
     archivo: Path = typer.Argument(..., help="Archivo a verificar.", exists=True),
     sig_file: Path = typer.Option(..., "--sig", "-s", help="Archivo de firma (.sig).", exists=True),
     pub_file: Path = typer.Option(..., "--pub", "-p", help="Clave pública Ed25519 (.pub).", exists=True),
+    trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", help="Directorio del Trust Store para verificar revocaciones."),
 ) -> None:
-    """Verifica la firma digital Ed25519 de un archivo."""
+    """Verifica la firma digital Ed25519 de un archivo consultando el Trust Store."""
     data = archivo.read_bytes()
     sig = sig_file.read_bytes()
     pub_pem = pub_file.read_bytes()
+
+    # Comprobar revocación
+    store = TrustStore(trust_dir)
+    revocada, rec = store.esta_revocada(key_id=pub_file.stem, public_key_pem=pub_pem)
+    if revocada and rec:
+        err_console.print(f"[bold red]❌ CLAVE REVOCADA:[/bold red] La clave {rec.key_id} está revocada desde {rec.revoked_at_utc} (Motivo: {rec.reason}).")
+        raise typer.Exit(code=1)
 
     if verificar_firma_ed25519(data, sig, pub_pem):
         console.print(f"[bold green]✓ FIRMA VÁLIDA:[/bold green] El archivo [cyan]{archivo}[/cyan] es auténtico y no fue modificado.")
@@ -306,3 +337,116 @@ def cmd_doctor() -> None:
     diag = ejecutar_diagnostico_doctor(console=console)
     if not diag["todo_ok"]:
         raise typer.Exit(code=1)
+
+
+# ==============================================================================
+# SUBCOMANDOS DE GESTIÓN DE TRANSPARENCIA Y REVOCACIÓN EN GITHUB (keymaker trust)
+# ==============================================================================
+
+@trust_app.command("init-repo")
+def cmd_trust_init_repo(
+    directorio: Path = typer.Argument(..., help="Directorio local para inicializar el repositorio de confianza de GitHub."),
+    issuer: str = typer.Option("catedra-algoritmos-p1", "--issuer", "-i", help="Identificador institucional de la cátedra emisora."),
+    root_key_out: Optional[Path] = typer.Option(None, "--root-key-out", "-k", help="Ruta donde guardar la clave privada raíz (trust_root.key)."),
+) -> None:
+    """Inicializa la estructura canónica de un repositorio público de GitHub para claves y CRL."""
+    priv, pub = inicializar_repo_confianza(
+        directorio_salida=directorio,
+        issuer=issuer,
+        root_priv_out=root_key_out,
+    )
+    console.print(Panel(
+        f"[bold green]✓ Repositorio de Confianza de GitHub inicializado en:[/bold green] [cyan]{directorio}[/cyan]\n\n"
+        f"• **Emisor Raíz:** `{issuer}`\n"
+        f"• **Clave Raíz Pública:** `{directorio / 'trust_root.pub'}`\n"
+        f"• **Directorio de Claves Autorizadas:** `{directorio / 'keys'}`\n"
+        f"• **Lista de Revocación:** `{directorio / 'revocations/crl.json'}` (firmada)\n\n"
+        "[yellow]Siguiente paso:[/yellow] Creá el repo público en GitHub y hacé `git push origin main`.",
+        title="[bold cyan]Keymaker Trust Init[/bold cyan]",
+        border_style="green",
+    ))
+
+
+@trust_app.command("sync")
+def cmd_trust_sync(
+    repo: str = typer.Option("catedra-p1/keymaker-trust", "--repo", "-r", help="Slug del repositorio público en GitHub (org/repo) o URL HTTPS."),
+    cache_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--cache-dir", "-c", help="Directorio local para cachear las claves y la CRL."),
+    branch: str = typer.Option("main", "--branch", "-b", help="Rama del repositorio de GitHub."),
+) -> None:
+    """Descarga y sincroniza las claves públicas autorizadas y la CRL desde un repo público de GitHub."""
+    res = sincronizar_desde_github(repo_slug_o_url=repo, destino_cache=cache_dir, branch=branch)
+    console.print(Panel(
+        f"[bold green]✓ Sincronización de confianza completada desde:[/bold green] [cyan]{res['repo']}[/cyan]\n\n"
+        f"• **Caché local:** `{res['cache_dir']}`\n"
+        f"• **Archivos sincronizados:** {len(res['archivos_sincronizados'])}\n"
+        f"• **Integridad de CRL:** `{'[green]✓ FIRMA VÁLIDA[/green]' if res['crl_verificada'] else '[dim]Pendiente o sin raíz[/dim]'}`",
+        title="[bold cyan]Keymaker Trust Sync[/bold cyan]",
+        border_style="green",
+    ))
+
+
+@trust_app.command("revoke")
+def cmd_trust_revoke(
+    key_id: str = typer.Option(..., "--key-id", "-i", help="Identificador de la clave pública a revocar (ej: 'docente-garcia-2025')."),
+    key_file: Path = typer.Option(..., "--key-file", "-f", help="Archivo de clave pública (.pub) para extraer el fingerprint.", exists=True),
+    reason: str = typer.Option("KEY_COMPROMISE", "--reason", "-r", help="Motivo: 'KEY_COMPROMISE', 'SUPERSEDED', 'TEACHER_DEPARTURE', 'LOST'."),
+    root_key: Path = typer.Option(..., "--root-key", "-k", help="Clave privada raíz Ed25519 (trust_root.key) para firmar la revocación.", exists=True),
+    trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", "-t", help="Directorio raíz del repositorio de confianza local.", exists=True),
+    replacement_id: Optional[str] = typer.Option(None, "--replacement", help="ID de la clave de reemplazo si aplica."),
+) -> None:
+    """Revoca una clave pública, actualiza la CRL y genera la nueva firma criptográfica."""
+    pub_pem = key_file.read_bytes()
+    root_priv_pem = root_key.read_bytes()
+    fingerprint = calcular_fingerprint_clave(pub_pem)
+
+    crl = agregar_revocacion_a_crl(
+        trust_dir=trust_dir,
+        key_id=key_id,
+        fingerprint=fingerprint,
+        motivo=reason,
+        root_priv_pem=root_priv_pem,
+        replacement_key_id=replacement_id,
+    )
+
+    console.print(Panel(
+        f"[bold red]✓ Clave revocada exitosamente y CRL actualizada:[/bold red]\n\n"
+        f"• **Key ID:** `{key_id}`\n"
+        f"• **Fingerprint SHA-256:** `{fingerprint}`\n"
+        f"• **Motivo:** `{reason}`\n"
+        f"• **Total Claves Revocadas en CRL:** {len(crl.revoked_keys)}\n\n"
+        "[yellow]Recordá hacer commit y push de 'crl.json' y 'crl.json.sig' al repositorio de GitHub.[/yellow]",
+        title="[bold red]Keymaker Key Revocation[/bold red]",
+        border_style="red",
+    ))
+
+
+@trust_app.command("check-revocation")
+def cmd_trust_check_revocation(
+    key_id: Optional[str] = typer.Option(None, "--key-id", "-i", help="ID de la clave a verificar."),
+    key_file: Optional[Path] = typer.Option(None, "--key-file", "-f", help="Archivo de clave pública (.pub)."),
+    trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", "-t", help="Directorio del Trust Store."),
+) -> None:
+    """Comprueba si una clave pública figura como revocada en la CRL oficial."""
+    if not key_id and not key_file:
+        err_console.print("[bold red]Debés especificar al menos --key-id o --key-file.[/bold red]")
+        raise typer.Exit(code=1)
+
+    pub_pem = key_file.read_bytes() if key_file and key_file.exists() else None
+    target_id = key_id or (key_file.stem if key_file else "desconocida")
+
+    store = TrustStore(trust_dir)
+    revocada, rec = store.esta_revocada(key_id=target_id, public_key_pem=pub_pem)
+
+    if revocada and rec:
+        console.print(Panel(
+            f"[bold red]❌ ATENCIÓN: CLAVE REVOCADA[/bold red]\n\n"
+            f"• **Key ID:** `{rec.key_id}`\n"
+            f"• **Fecha de Revocación:** `{rec.revoked_at_utc}`\n"
+            f"• **Motivo:** `{rec.reason}`\n"
+            f"• **Clave de Reemplazo:** `{rec.replacement_key_id or 'Ninguna'}`",
+            title="[bold red]Estado: REVOCADA[/bold red]",
+            border_style="red",
+        ))
+        raise typer.Exit(code=1)
+    else:
+        console.print(f"[bold green]✓ Clave '{target_id}' NO está revocada.[/bold green] (Estado activo en Trust Store).")
