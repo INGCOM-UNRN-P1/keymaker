@@ -1,0 +1,29 @@
+[project]
+name = "keymaker"
+version = "0.1.0"
+description = "Gestor de cifrado autenticado, integridad y desbloqueo temporal para paquetes de examen (.ripkg.enc)"
+readme = "README.md"
+authors = [
+    { name = "Cátedra de Algoritmos y Programación", email = "docentes@catedra.edu.ar" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=43.0.0",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+    "typer>=0.12.0",
+]
+
+[project.scripts]
+keymaker = "keymaker.cli:app"
+
+[project.entry-points."keymaker.plugins"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
