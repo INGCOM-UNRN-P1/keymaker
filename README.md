@@ -30,14 +30,14 @@ Gestor de cifrado simétrico autenticado (AES-256-GCM / ChaCha20-Poly1305), firm
 - `openssl` (opcional; utiliza backend criptográfico puro en Python vía `cryptography`).
 
 ### Integración en el Ecosistema
-- CLI `keymaker`. Subcomando `keymaker doctor`. Integrado con `alucard` y `dredd`.
+- CLI `keymaker`. Subcomando `keymaker doctor`. Utilidad criptográfica independiente para generación, verificación y custodia de paquetes de evaluación.
 
 ---
 
 ## Características
 
 - **Cifrado Autenticado de Exámenes**: Empaquetado seguro en formato `.ripkg.enc`.
-- **Desbloqueo Temporal (Time-Lock)**: Impide el acceso al contenido antes de la hora oficial del examen.
+- **Desbloqueo Temporal (Time-Lock)**: Impide el acceso al contenido antes de la hora oficial del examen (con bypass auditado mediante clave docente autorizada).
 - **Derivación de Claves por Legajo (HKDF-SHA256)**: Paquetes individualizados por estudiante.
 - **División de Secretos de Shamir ($k$ de $n$)**: Requiere el quórum de $k$ docentes para descifrar pautas sensibles.
 - **Firmas Digitales Asimétricas (Ed25519)**: Certificación de autoría e integridad de enunciados y starter kits.
@@ -52,6 +52,26 @@ uv tool install . --editable
 # Diagnóstico de capacidades criptográficas
 keymaker doctor
 
+# Generar par de claves Ed25519
+keymaker gen-keys -o clave_docente
+
 # Empaquetar y cifrar un examen con Time-Lock
 keymaker pack ./parcial_tema_1 -o parcial1.ripkg.enc -t "2026-09-15T09:00:00Z"
+
+# Desempaquetar y descifrar bundle
+keymaker unpack parcial1.ripkg.enc -o ./examen_descifrado
+
+# Firmar digitalmente y verificar integridad de un archivo
+keymaker sign enunciado.pdf -k clave_docente.ed25519.priv
+keymaker verify enunciado.pdf enunciado.pdf.sig -k clave_docente.ed25519.pub
+
+# Dividir un secreto en 5 partes (quórum de 3) y reconstruirlo
+keymaker split-secret "ContraseñaSuperSecreta" -n 5 -k 3
+keymaker combine-shares parte1.json parte2.json parte3.json
+
+# Auditar entropía de frase de paso
+keymaker audit-passphrase "AlgoritmosYProgramacion2026"
+
+# Gestión de repositorio de confianza (Trust Store / CRL)
+keymaker trust list
 ```
