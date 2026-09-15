@@ -130,6 +130,10 @@ def cmd_unpack(
     trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", help="Directorio del Trust Store para verificar revocaciones."),
 ) -> None:
     """Descifra, verifica la integridad y extrae el contenido de un bundle (.ripkg.enc)."""
+    if force_unlock and not verify_key:
+        err_console.print("[bold red]❌ Error de autenticación:[/bold red] El forzado de Time-Lock (--force) requiere autenticación docente mediante clave pública autorizada (--verify-key).")
+        raise typer.Exit(code=1)
+
     pub_pem: Optional[bytes] = None
     if verify_key:
         if not verify_key.exists():

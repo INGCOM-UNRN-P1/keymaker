@@ -75,3 +75,16 @@ def test_cli_pack_and_unpack(tmp_path):
     assert res_unpack.exit_code == 0
     assert (out_dir / "desempaquetado.dat").exists()
     assert (out_dir / "desempaquetado.dat").read_text() == "Solucion modelo oficial de catedra"
+
+
+def test_cli_unpack_force_requires_verify_key(tmp_path):
+    orig = tmp_path / "pauta.txt"
+    orig.write_text("Solucion")
+    bundle = tmp_path / "pauta.ripkg.enc"
+    runner.invoke(app, ["pack", str(orig), "-o", str(bundle), "-p", "Password12345!"])
+
+    out_dir = tmp_path / "dest"
+    res_force = runner.invoke(app, ["unpack", str(bundle), "-o", str(out_dir), "-p", "Password12345!", "--force"])
+    assert res_force.exit_code == 1
+    assert "clave pública autorizada" in res_force.output
+
