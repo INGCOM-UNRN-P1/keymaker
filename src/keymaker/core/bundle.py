@@ -25,6 +25,48 @@ from keymaker.core.time_lock import verificar_desbloqueo_temporal
 
 MAGIC_HEADER = b"RIPKG_ENC_V1"
 
+# Cabecera de un ZIP: `.ripkg` (el bundle de ripley) es un ZIP SIN CIFRAR, y su
+# nombre se parece peligrosamente a `.ripkg.enc`. Distinguirlos explícitamente
+# evita que alguien distribuya material de examen creyéndolo protegido.
+_MAGIC_ZIP = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+
+
+def inspeccionar_formato(ruta: Path) -> Dict[str, Any]:
+    """Determina si un archivo es un bundle cifrado de keymaker.
+
+    Devuelve el formato detectado y, cuando corresponde, la advertencia de que
+    el contenido viaja en claro.
+    """
+    ruta = Path(ruta)
+    cabecera = b""
+    if ruta.is_file():
+        with open(ruta, "rb") as f:
+            cabecera = f.read(max(len(MAGIC_HEADER), 4))
+
+    if cabecera.startswith(MAGIC_HEADER):
+        return {
+            "cifrado": True,
+            "formato": "ripkg-enc",
+            "detalle": "Bundle cifrado de keymaker (AES-256-GCM autenticado).",
+        }
+
+    if any(cabecera.startswith(m) for m in _MAGIC_ZIP):
+        return {
+            "cifrado": False,
+            "formato": "zip",
+            "detalle": (
+                "Archivo ZIP sin cifrar. El `.ripkg` de ripley es exactamente esto: "
+                "un ZIP en claro, aunque su nombre se parezca a `.ripkg.enc`. "
+                "Cualquiera que lo reciba puede leer el contenido sin contraseña."
+            ),
+        }
+
+    return {
+        "cifrado": False,
+        "formato": "desconocido",
+        "detalle": "No tiene la cabecera de un bundle de keymaker.",
+    }
+
 
 def empaquetar_directorio_a_zip(directorio_origen: Path) -> bytes:
     """Empaqueta un directorio en un archivo ZIP en memoria."""
@@ -101,6 +143,15 @@ def desempaquetar_bundle_cifrado(
     """
     Lee, valida y descifra un bundle .ripkg.enc. Retorna los bytes descifrados y los metadatos verificados.
     """
+    # Se valida el formato ANTES de pedir la passphrase: si no, entregarle a
+    # keymaker un `.ripkg` en claro devolvía un prompt de contraseña, que es
+    # justamente la señal que hace creer que el archivo estaba protegido.
+    formato = inspeccionar_formato(bundle_path)
+    if not formato["cifrado"]:
+        raise ValueError(
+            f"{bundle_path} no es un bundle cifrado de keymaker. {formato['detalle']}"
+        )
+
     with open(bundle_path, "rb") as f:
         magic = f.read(len(MAGIC_HEADER))
         if magic != MAGIC_HEADER:

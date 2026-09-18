@@ -14,6 +14,7 @@ from rich.table import Table
 
 from keymaker import __version__
 from keymaker.core.bundle import (
+    inspeccionar_formato,
     crear_bundle_cifrado,
     desempaquetar_bundle_cifrado,
     empaquetar_directorio_a_zip,
@@ -118,10 +119,56 @@ def cmd_pack(
     ))
 
 
+def _validar_bundle_cifrado(valor: Path) -> Path:
+    """Rechaza archivos que no son bundles cifrados antes de pedir la passphrase.
+
+    Pedir la contraseña sobre un `.ripkg` en claro es la señal que hace creer
+    que el archivo estaba protegido; el `.ripkg` de ripley es un ZIP sin
+    cifrar pese al parecido de nombres con `.ripkg.enc`.
+    """
+    if valor is None:
+        return valor
+    formato = inspeccionar_formato(valor)
+    if not formato["cifrado"]:
+        err_console.print(
+            f"[bold red]❌ {valor} no es un bundle cifrado de keymaker.[/bold red]\n"
+            f"{formato['detalle']}"
+        )
+        raise typer.Exit(code=2)
+    return valor
+
+
+@app.command("inspect")
+def cmd_inspect(
+    archivo: Path = typer.Argument(..., help="Archivo a inspeccionar.", exists=True),
+    json_output: bool = typer.Option(False, "--json", help="Emitir el resultado en JSON."),
+) -> None:
+    """Informa si un archivo está realmente cifrado por keymaker o viaja en claro."""
+    formato = inspeccionar_formato(archivo)
+
+    if json_output:
+        print(json.dumps({"archivo": str(archivo), **formato}, indent=2, ensure_ascii=False))
+        raise typer.Exit(code=0 if formato["cifrado"] else 1)
+
+    if formato["cifrado"]:
+        console.print(f"[bold green]🔒 CIFRADO[/bold green] — {archivo}")
+        console.print(formato["detalle"])
+        raise typer.Exit(code=0)
+
+    console.print(f"[bold red]🔓 SIN CIFRAR[/bold red] — {archivo}")
+    console.print(formato["detalle"])
+    raise typer.Exit(code=1)
+
+
 @app.command("unpack")
 @app.command("decrypt")
 def cmd_unpack(
-    bundle: Path = typer.Argument(..., help="Ruta al archivo cifrado (.ripkg.enc).", exists=True),
+    bundle: Path = typer.Argument(
+        ...,
+        help="Ruta al archivo cifrado (.ripkg.enc).",
+        exists=True,
+        callback=_validar_bundle_cifrado,
+    ),
     output_dir: Path = typer.Option(Path("./desempaquetado"), "--output", "-o", help="Directorio destino para extraer el contenido."),
     passphrase: str = typer.Option(..., "--passphrase", "-p", prompt=True, hide_input=True, help="Frase de paso para descifrado."),
     legajo: Optional[str] = typer.Option(None, "--legajo", "-l", help="Legajo de estudiante para derivación HKDF."),
