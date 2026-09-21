@@ -54,6 +54,16 @@ err_console = Console(stderr=True)
 
 DEFAULT_TRUST_DIR = Path.home() / ".keymaker" / "trust"
 
+SCHEMA_VERSION = "1.0.0"
+JSON_OPT = "Emitir el resultado en JSON versionado (schema_version)."
+
+
+def _emitir_json(comando: str, datos: dict) -> None:
+    """Imprime `datos` como JSON con el envoltorio común de todos los comandos."""
+    payload = {"schema_version": SCHEMA_VERSION, "herramienta": "keymaker", "comando": comando}
+    payload.update(datos)
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
 
 def version_callback(value: bool):
     if value:
@@ -84,6 +94,7 @@ def cmd_pack(
     time_lock: Optional[str] = typer.Option(None, "--time-lock", "-t", help="Fecha/hora UTC de desbloqueo (ej: 2026-09-15T09:00:00Z)."),
     legajo: Optional[str] = typer.Option(None, "--legajo", "-l", help="Legajo de estudiante para derivación HKDF."),
     signing_key: Optional[Path] = typer.Option(None, "--sign-key", "-s", help="Clave privada Ed25519 (.key) para firmar digitalmente."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Empaqueta y cifra un examen o pauta en un bundle autenticado (.ripkg.enc)."""
     if origen.is_dir():
@@ -106,6 +117,13 @@ def cmd_pack(
         legajo=legajo,
         private_key_pem=priv_pem,
     )
+
+    if json_output:
+        _emitir_json("pack", {"salida": str(output), "algoritmo": meta["cipher"],
+                              "checksum_sha256": meta["checksum_sha256"],
+                              "time_lock_utc": meta["time_lock_utc"], "legajo": meta["legajo"],
+                              "firmado": bool(meta["signature_b64"])})
+        return
 
     console.print(Panel(
         f"[bold green]✓ Paquete cifrado exitosamente en:[/bold green] [cyan]{output}[/cyan]\n\n"
@@ -147,7 +165,7 @@ def cmd_inspect(
     formato = inspeccionar_formato(archivo)
 
     if json_output:
-        print(json.dumps({"archivo": str(archivo), **formato}, indent=2, ensure_ascii=False))
+        _emitir_json("inspect", {"archivo": str(archivo), **formato})
         raise typer.Exit(code=0 if formato["cifrado"] else 1)
 
     if formato["cifrado"]:
@@ -175,6 +193,7 @@ def cmd_unpack(
     verify_key: Optional[Path] = typer.Option(None, "--verify-key", "-v", help="Clave pública Ed25519 (.pub) para verificar la firma."),
     force_unlock: bool = typer.Option(False, "--force", "-f", help="Forzar desbloqueo docente omitiendo el Time-Lock."),
     trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", help="Directorio del Trust Store para verificar revocaciones."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Descifra, verifica la integridad y extrae el contenido de un bundle (.ripkg.enc)."""
     if force_unlock and not verify_key:
@@ -209,6 +228,12 @@ def cmd_unpack(
 
     archivos = extraer_payload_a_directorio(plaintext, output_dir)
 
+    if json_output:
+        _emitir_json("unpack", {"directorio": str(output_dir), "archivos": len(archivos),
+                                "checksum_sha256": meta["checksum_sha256"],
+                                "firma_verificada": pub_pem is not None})
+        return
+
     console.print(Panel(
         f"[bold green]✓ Paquete descifrado y verificado exitosamente en:[/bold green] [cyan]{output_dir}[/cyan]\n\n"
         f"• **Archivos extraídos:** {len(archivos)}\n"
@@ -223,6 +248,7 @@ def cmd_unpack(
 def cmd_gen_keys(
     prefix: str = typer.Option("catedra", "--prefix", "-p", help="Prefijo de los archivos de clave generados."),
     out_dir: Path = typer.Option(Path("."), "--output-dir", "-o", help="Directorio donde guardar las claves."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Genera un nuevo par de claves asimétricas Ed25519 para firma digital de exámenes."""
     priv_pem, pub_pem = generar_par_claves_ed25519()
@@ -238,6 +264,10 @@ def cmd_gen_keys(
     except Exception:
         pass
 
+    if json_output:
+        _emitir_json("gen-keys", {"clave_privada": str(priv_file), "clave_publica": str(pub_file)})
+        return
+
     console.print(f"[bold green]✓ Par de claves Ed25519 generado exitosamente:[/bold green]")
     console.print(f"  • [bold]Clave Privada (Firma):[/bold] [cyan]{priv_file}[/cyan] (chmod 600)")
     console.print(f"  • [bold]Clave Pública (Verificación):[/bold] [cyan]{pub_file}[/cyan]")
@@ -248,6 +278,7 @@ def cmd_sign(
     archivo: Path = typer.Argument(..., help="Archivo a firmar.", exists=True),
     key_file: Path = typer.Option(..., "--key", "-k", help="Ruta a la clave privada Ed25519 (.key).", exists=True),
     sig_output: Optional[Path] = typer.Option(None, "--output", "-o", help="Archivo de firma de salida (.sig)."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Firma un archivo con una clave privada Ed25519."""
     data = archivo.read_bytes()
@@ -256,6 +287,9 @@ def cmd_sign(
 
     out_path = sig_output or archivo.with_suffix(archivo.suffix + ".sig")
     out_path.write_bytes(sig)
+    if json_output:
+        _emitir_json("sign", {"archivo": str(archivo), "firma": str(out_path)})
+        return
     console.print(f"[bold green]✓ Firma digital generada en:[/bold green] [cyan]{out_path}[/cyan]")
 
 
@@ -265,6 +299,7 @@ def cmd_verify(
     sig_file: Path = typer.Option(..., "--sig", "-s", help="Archivo de firma (.sig).", exists=True),
     pub_file: Path = typer.Option(..., "--pub", "-p", help="Clave pública Ed25519 (.pub).", exists=True),
     trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", help="Directorio del Trust Store para verificar revocaciones."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Verifica la firma digital Ed25519 de un archivo consultando el Trust Store."""
     data = archivo.read_bytes()
@@ -275,10 +310,19 @@ def cmd_verify(
     store = TrustStore(trust_dir)
     revocada, rec = store.esta_revocada(key_id=pub_file.stem, public_key_pem=pub_pem)
     if revocada and rec:
+        if json_output:
+            _emitir_json("verify", {"archivo": str(archivo), "valida": False, "revocada": True,
+                                    "key_id": rec.key_id, "motivo": rec.reason})
+            raise typer.Exit(code=1)
         err_console.print(f"[bold red]❌ CLAVE REVOCADA:[/bold red] La clave {rec.key_id} está revocada desde {rec.revoked_at_utc} (Motivo: {rec.reason}).")
         raise typer.Exit(code=1)
 
-    if verificar_firma_ed25519(data, sig, pub_pem):
+    valida = verificar_firma_ed25519(data, sig, pub_pem)
+    if json_output:
+        _emitir_json("verify", {"archivo": str(archivo), "valida": valida, "revocada": False})
+        raise typer.Exit(code=0 if valida else 1)
+
+    if valida:
         console.print(f"[bold green]✓ FIRMA VÁLIDA:[/bold green] El archivo [cyan]{archivo}[/cyan] es auténtico y no fue modificado.")
     else:
         err_console.print(f"[bold red]❌ FIRMA INVÁLIDA:[/bold red] El archivo [cyan]{archivo}[/cyan] ha sido alterado o la clave pública es incorrecta.")
@@ -301,7 +345,7 @@ def cmd_split_secret(
     ]
 
     if json_output:
-        print(json.dumps({"k": k, "n": n, "shares": shares_formatted}, indent=2))
+        _emitir_json("split-secret", {"k": k, "n": n, "shares": shares_formatted})
         return
 
     console.print(Panel(
@@ -324,6 +368,7 @@ def cmd_split_secret(
 @app.command("combine-shares")
 def cmd_combine_shares(
     shares: List[str] = typer.Argument(..., help="Partes en formato 'indice:share_b64' (ej: '1:Ag4F...' '3:Bw8Z...')."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Reconstruye un secreto a partir de K partes de Shamir."""
     partes_tuplas = []
@@ -341,6 +386,10 @@ def cmd_combine_shares(
         err_console.print(f"[bold red]❌ Error al reconstruir el secreto:[/bold red] {e}")
         raise typer.Exit(code=1)
 
+    if json_output:
+        _emitir_json("combine-shares", {"partes": len(partes_tuplas), "secreto": secreto_str})
+        return
+
     console.print(f"\n[bold green]✓ Secreto reconstruido con éxito:[/bold green] [bold cyan]{secreto_str}[/bold cyan]\n")
 
 
@@ -353,7 +402,7 @@ def cmd_audit_passphrase(
     reporte = auditar_frase_paso(frase)
 
     if json_output:
-        print(json.dumps(reporte, indent=2, ensure_ascii=False))
+        _emitir_json("audit-passphrase", reporte)
         return
 
     color = "green" if reporte["valida_para_examen"] else "red"
@@ -376,16 +425,25 @@ def cmd_audit_passphrase(
 @app.command("checksum")
 def cmd_checksum(
     archivo: Path = typer.Argument(..., help="Archivo a calcular hash SHA-256.", exists=True),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Calcula el checksum SHA-256 de un archivo para control de integridad."""
     h = calcular_sha256_archivo(str(archivo))
+    if json_output:
+        _emitir_json("checksum", {"archivo": str(archivo), "sha256": h})
+        return
     console.print(f"[bold white]{h}[/bold white]  [cyan]{archivo}[/cyan]")
 
 
 @app.command("doctor")
-def cmd_doctor() -> None:
+def cmd_doctor(
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
+) -> None:
     """Ejecuta el diagnóstico integral del subsistema criptográfico."""
-    diag = ejecutar_diagnostico_doctor(console=console)
+    diag = ejecutar_diagnostico_doctor(console=Console(quiet=True) if json_output else console)
+    if json_output:
+        _emitir_json("doctor", {"ok": diag["todo_ok"], **{k: v for k, v in diag.items() if k != "todo_ok"}})
+        raise typer.Exit(code=0 if diag["todo_ok"] else 1)
     if not diag["todo_ok"]:
         raise typer.Exit(code=1)
 
@@ -399,6 +457,7 @@ def cmd_trust_init_repo(
     directorio: Path = typer.Argument(..., help="Directorio local para inicializar el repositorio de confianza de GitHub."),
     issuer: str = typer.Option("catedra-algoritmos-p1", "--issuer", "-i", help="Identificador institucional de la cátedra emisora."),
     root_key_out: Optional[Path] = typer.Option(None, "--root-key-out", "-k", help="Ruta donde guardar la clave privada raíz (trust_root.key)."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Inicializa la estructura canónica de un repositorio público de GitHub para claves y CRL."""
     priv, pub = inicializar_repo_confianza(
@@ -406,6 +465,11 @@ def cmd_trust_init_repo(
         issuer=issuer,
         root_priv_out=root_key_out,
     )
+    if json_output:
+        _emitir_json("trust init-repo", {"directorio": str(directorio), "emisor": issuer,
+                                         "clave_raiz_publica": str(directorio / "trust_root.pub"),
+                                         "crl": str(directorio / "revocations/crl.json")})
+        return
     console.print(Panel(
         f"[bold green]✓ Repositorio de Confianza de GitHub inicializado en:[/bold green] [cyan]{directorio}[/cyan]\n\n"
         f"• **Emisor Raíz:** `{issuer}`\n"
@@ -423,9 +487,15 @@ def cmd_trust_sync(
     repo: str = typer.Option("catedra-p1/keymaker-trust", "--repo", "-r", help="Slug del repositorio público en GitHub (org/repo) o URL HTTPS."),
     cache_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--cache-dir", "-c", help="Directorio local para cachear las claves y la CRL."),
     branch: str = typer.Option("main", "--branch", "-b", help="Rama del repositorio de GitHub."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Descarga y sincroniza las claves públicas autorizadas y la CRL desde un repo público de GitHub."""
     res = sincronizar_desde_github(repo_slug_o_url=repo, destino_cache=cache_dir, branch=branch)
+    if json_output:
+        _emitir_json("trust sync", {"repo": res["repo"], "cache_dir": str(res["cache_dir"]),
+                                    "archivos_sincronizados": len(res["archivos_sincronizados"]),
+                                    "crl_verificada": bool(res["crl_verificada"])})
+        return
     console.print(Panel(
         f"[bold green]✓ Sincronización de confianza completada desde:[/bold green] [cyan]{res['repo']}[/cyan]\n\n"
         f"• **Caché local:** `{res['cache_dir']}`\n"
@@ -444,6 +514,7 @@ def cmd_trust_revoke(
     root_key: Path = typer.Option(..., "--root-key", "-k", help="Clave privada raíz Ed25519 (trust_root.key) para firmar la revocación.", exists=True),
     trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", "-t", help="Directorio raíz del repositorio de confianza local.", exists=True),
     replacement_id: Optional[str] = typer.Option(None, "--replacement", help="ID de la clave de reemplazo si aplica."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Revoca una clave pública, actualiza la CRL y genera la nueva firma criptográfica."""
     pub_pem = key_file.read_bytes()
@@ -458,6 +529,11 @@ def cmd_trust_revoke(
         root_priv_pem=root_priv_pem,
         replacement_key_id=replacement_id,
     )
+
+    if json_output:
+        _emitir_json("trust revoke", {"key_id": key_id, "fingerprint": fingerprint, "motivo": reason,
+                                      "total_revocadas": len(crl.revoked_keys)})
+        return
 
     console.print(Panel(
         f"[bold red]✓ Clave revocada exitosamente y CRL actualizada:[/bold red]\n\n"
@@ -476,6 +552,7 @@ def cmd_trust_check_revocation(
     key_id: Optional[str] = typer.Option(None, "--key-id", "-i", help="ID de la clave a verificar."),
     key_file: Optional[Path] = typer.Option(None, "--key-file", "-f", help="Archivo de clave pública (.pub)."),
     trust_dir: Path = typer.Option(DEFAULT_TRUST_DIR, "--trust-dir", "-t", help="Directorio del Trust Store."),
+    json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
 ) -> None:
     """Comprueba si una clave pública figura como revocada en la CRL oficial."""
     if not key_id and not key_file:
@@ -487,6 +564,14 @@ def cmd_trust_check_revocation(
 
     store = TrustStore(trust_dir)
     revocada, rec = store.esta_revocada(key_id=target_id, public_key_pem=pub_pem)
+
+    if json_output:
+        datos = {"key_id": target_id, "revocada": bool(revocada and rec)}
+        if revocada and rec:
+            datos.update({"fecha_revocacion": rec.revoked_at_utc, "motivo": rec.reason,
+                          "reemplazo": rec.replacement_key_id})
+        _emitir_json("trust check-revocation", datos)
+        raise typer.Exit(code=1 if revocada and rec else 0)
 
     if revocada and rec:
         console.print(Panel(
