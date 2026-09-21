@@ -40,8 +40,6 @@ Issues = "https://github.com/INGCOM-UNRN-P1/keymaker/issues"
 [project.scripts]
 keymaker = "keymaker.cli:app"
 
-[project.entry-points."keymaker.plugins"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
