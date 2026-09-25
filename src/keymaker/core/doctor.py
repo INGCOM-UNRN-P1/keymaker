@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import cryptography
 from cryptography.hazmat.backends.openssl.backend import backend as openssl_backend

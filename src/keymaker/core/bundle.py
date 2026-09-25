@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import struct
 import tarfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import zipfile
 
 from keymaker.core.crypto import (
