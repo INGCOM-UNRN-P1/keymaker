@@ -38,6 +38,7 @@ from keymaker.core.trust import (
 )
 
 app = typer.Typer(
+    context_settings={"help_option_names": ["-h", "--help"]},
     name="keymaker",
     help="🔐 Keymaker — Gestor de cifrado simétrico autenticado (AES-GCM), firmas Ed25519, Time-Lock y Trust Store.",
     no_args_is_help=True,
