@@ -29,6 +29,7 @@ from keymaker.core.crypto import (
 from keymaker.core.doctor import ejecutar_diagnostico_doctor
 from keymaker.core.entropy import auditar_frase_paso
 from keymaker.core.shamir import combinar_partes, dividir_secreto
+from keymaker.core.time_lock import ADVERTENCIA_TIME_LOCK
 from keymaker.core.trust import (
     TrustStore,
     agregar_revocacion_a_crl,
@@ -92,7 +93,10 @@ def cmd_pack(
     origen: Path = typer.Argument(..., help="Archivo o directorio a empaquetar y cifrar.", exists=True),
     output: Path = typer.Option(..., "--output", "-o", help="Ruta del archivo de salida (.ripkg.enc)."),
     passphrase: str = typer.Option(..., "--passphrase", "-p", prompt=True, hide_input=True, help="Frase de paso para cifrado."),
-    time_lock: Optional[str] = typer.Option(None, "--time-lock", "-t", help="Fecha/hora UTC de desbloqueo (ej: 2026-09-15T09:00:00Z)."),
+    time_lock: Optional[str] = typer.Option(
+        None, "--time-lock", "-t",
+        help="Fecha/hora UTC de desbloqueo (ej: 2026-09-15T09:00:00Z). Disuasivo: se verifica con el reloj local.",
+    ),
     legajo: Optional[str] = typer.Option(None, "--legajo", "-l", help="Legajo de estudiante para derivación HKDF."),
     signing_key: Optional[Path] = typer.Option(None, "--sign-key", "-s", help="Clave privada Ed25519 (.key) para firmar digitalmente."),
     json_output: bool = typer.Option(False, "--json", help=JSON_OPT),
@@ -120,10 +124,13 @@ def cmd_pack(
     )
 
     if json_output:
-        _emitir_json("pack", {"salida": str(output), "algoritmo": meta["cipher"],
-                              "checksum_sha256": meta["checksum_sha256"],
-                              "time_lock_utc": meta["time_lock_utc"], "legajo": meta["legajo"],
-                              "firmado": bool(meta["signature_b64"])})
+        datos = {"salida": str(output), "algoritmo": meta["cipher"],
+                 "checksum_sha256": meta["checksum_sha256"],
+                 "time_lock_utc": meta["time_lock_utc"], "legajo": meta["legajo"],
+                 "firmado": bool(meta["signature_b64"])}
+        if meta["time_lock_utc"]:
+            datos["advertencia_time_lock"] = ADVERTENCIA_TIME_LOCK
+        _emitir_json("pack", datos)
         return
 
     console.print(Panel(
@@ -136,6 +143,8 @@ def cmd_pack(
         title="[bold cyan]Keymaker Pack[/bold cyan]",
         border_style="green",
     ))
+    if meta["time_lock_utc"]:
+        console.print(f"[yellow]⚠ {ADVERTENCIA_TIME_LOCK}[/yellow]")
 
 
 def _validar_bundle_cifrado(valor: Path) -> Path:

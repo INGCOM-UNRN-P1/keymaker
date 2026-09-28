@@ -88,3 +88,25 @@ def test_cli_unpack_force_requires_verify_key(tmp_path):
     assert res_force.exit_code == 1
     assert "clave pública autorizada" in res_force.output
 
+
+
+def test_pack_con_time_lock_advierte_que_es_disuasivo(tmp_path):
+    """N-KEYMAKER-01: el Time-Lock se verifica con el reloj local; pack lo dice al empaquetar."""
+    import json
+
+    examen = tmp_path / "enunciado.md"
+    examen.write_text("# Parcial\n", encoding="utf-8")
+    args = ["pack", str(examen), "-o", str(tmp_path / "p.ripkg.enc"), "-p", "Frase-De-Paso-Larga-2026",
+            "-t", "2030-01-01T09:00:00Z"]
+    res = runner.invoke(app, args, env={"COLUMNS": "250"})
+    assert res.exit_code == 0, res.output
+    assert "disuasivo" in res.output and "reloj" in res.output
+
+    res = runner.invoke(app, [*args, "--json"])
+    assert res.exit_code == 0, res.output
+    datos = json.loads(res.stdout)
+    assert "disuasivo" in datos["advertencia_time_lock"]
+
+    sin_lock = runner.invoke(app, ["pack", str(examen), "-o", str(tmp_path / "q.ripkg.enc"),
+                                   "-p", "Frase-De-Paso-Larga-2026", "--json"])
+    assert "advertencia_time_lock" not in json.loads(sin_lock.stdout)

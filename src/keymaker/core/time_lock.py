@@ -1,9 +1,24 @@
-"""Gestión de políticas de desbloqueo temporal (Time-Lock) para paquetes de examen."""
+"""Gestión de políticas de desbloqueo temporal (Time-Lock) para paquetes de examen.
+
+El Time-Lock es **disuasivo**: la hora se compara con el reloj de la máquina que
+abre el paquete, y quien tiene la frase de paso puede adelantar ese reloj o
+descifrar el bundle (AES-GCM estándar) con otra herramienta (N-KEYMAKER-01).
+Para que un examen no se pueda abrir antes de hora, la frase de paso se
+distribuye recién a la hora de inicio (o se reparte con `keymaker split-secret`).
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
+
+
+ADVERTENCIA_TIME_LOCK = (
+    "El Time-Lock es disuasivo: se verifica con el reloj de la máquina que abre el paquete. "
+    "Quien tenga la frase de paso puede adelantar el reloj o descifrarlo con otra herramienta; "
+    "para que no se abra antes de hora, distribuí la frase recién a la hora de inicio "
+    "(o repartila con `keymaker split-secret`)."
+)
 
 
 class TimeLockError(PermissionError):

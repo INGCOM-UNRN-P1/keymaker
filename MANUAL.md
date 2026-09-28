@@ -13,7 +13,7 @@
 - Motor de seguridad criptográfica y gestión de integridad para paquetes docentes de examen.
 - Cifrado simétrico autenticado (AES-256-GCM / ChaCha20-Poly1305) para bundles de examen empaquetados (`.ripkg.enc`).
 - Firma digital asimétrica y verificación de autenticidad mediante claves Ed25519 de cátedra.
-- Desbloqueo temporal sincronizado (Time-Lock) con validación estricta de horario UTC para apertura de evaluaciones.
+- Desbloqueo temporal (Time-Lock) **disuasivo**: la hora UTC se compara con el reloj de la máquina que abre el paquete; quien tenga la frase de paso puede adelantarlo o descifrar el bundle con otra herramienta. Para que no se abra antes de hora, la frase de paso se distribuye recién al inicio (o se reparte con `keymaker split-secret`).
 - División y recuperación de secretos docentes mediante esquema de Shamir (Secret Sharing $k$ de $n$ en GF(256)).
 - Auditoría de entropía de contraseñas de examen y verificación de claves contra repositorio público de confianza (Trust Store / CRL).
 
