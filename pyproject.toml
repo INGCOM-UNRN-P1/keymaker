@@ -1,6 +1,6 @@
 [project]
 name = "keymaker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gestor de cifrado autenticado, integridad y desbloqueo temporal para paquetes de examen (.ripkg.enc)"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
