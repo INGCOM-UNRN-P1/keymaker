@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import typer
+from yutani.cli import crear_app
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -38,11 +39,12 @@ from keymaker.core.trust import (
     sincronizar_desde_github,
 )
 
-app = typer.Typer(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    name="keymaker",
-    help="🔐 Keymaker — Gestor de cifrado simétrico autenticado (AES-GCM), firmas Ed25519, Time-Lock y Trust Store.",
-    no_args_is_help=True,
+# Contrato de línea de comandos del ecosistema (-h/--help, --version/-v, errores de datos como
+# mensajes) y textos de Typer en español, desde yutani (N-ECO-14).
+app = crear_app(
+    "keymaker",
+    __version__,
+    "🔐 Keymaker — Gestor de cifrado simétrico autenticado (AES-GCM), firmas Ed25519, Time-Lock y Trust Store.",
 )
 trust_app = typer.Typer(
     name="trust",
@@ -65,26 +67,6 @@ def _emitir_json(comando: str, datos: dict) -> None:
     payload = {"schema_version": SCHEMA_VERSION, "herramienta": "keymaker", "comando": comando}
     payload.update(datos)
     print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-
-def version_callback(value: bool):
-    if value:
-        console.print(f"[bold cyan]keymaker[/bold cyan] versión [green]{__version__}[/green]")
-        raise typer.Exit(code=0)
-
-
-@app.callback()
-def main(
-    version: bool = typer.Option(
-        False,
-        "-v",
-        "--version",
-        help="Muestra la versión de Keymaker y finaliza.",
-        callback=version_callback,
-        is_eager=True,
-    ),
-):
-    pass
 
 
 @app.command("pack")
