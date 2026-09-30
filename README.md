@@ -91,3 +91,32 @@ keymaker audit-passphrase "AlgoritmosYProgramacion2026"
 # Gestión de repositorio de confianza (Trust Store / CRL)
 keymaker trust list
 ```
+
+<!-- p1:referencia:inicio — generado por p1-tools/scripts/readme_generado.py: no editar a mano -->
+
+## Referencia rápida
+
+### Requisitos
+
+- Python ≥ 3.11 y [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
+### Comandos
+
+| Comando | Descripción |
+|:--|:--|
+| `keymaker encrypt`, `keymaker pack` | Empaqueta y cifra un examen o pauta en un bundle autenticado (.ripkg.enc). |
+| `keymaker inspect` | Informa si un archivo está realmente cifrado por keymaker o viaja en claro. |
+| `keymaker decrypt`, `keymaker unpack` | Descifra, verifica la integridad y extrae el contenido de un bundle (.ripkg.enc). |
+| `keymaker gen-keys` | Genera un nuevo par de claves asimétricas Ed25519 para firma digital de exámenes. |
+| `keymaker sign` | Firma un archivo con una clave privada Ed25519. |
+| `keymaker verify` | Verifica la firma digital Ed25519 de un archivo consultando el Trust Store. |
+| `keymaker split-secret` | Divide un secreto docente en N partes usando el esquema de Shamir (k de n). |
+| `keymaker combine-shares` | Reconstruye un secreto a partir de K partes de Shamir. |
+| `keymaker audit-passphrase` | Audita la entropía y robustez criptográfica de una frase de paso para exámenes. |
+| `keymaker checksum` | Calcula el checksum SHA-256 de un archivo para control de integridad. |
+| `keymaker doctor` | Ejecuta el diagnóstico integral del subsistema criptográfico. |
+| `keymaker trust` | 🛡️ Gestión de claves públicas autorizadas y Lista de Revocación (CRL) en GitHub. |
+
+Ayuda de cada comando: `keymaker <comando> -h`.
+
+<!-- p1:referencia:fin -->
