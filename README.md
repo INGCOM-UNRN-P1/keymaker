@@ -119,4 +119,16 @@ keymaker trust list
 
 Ayuda de cada comando: `keymaker <comando> -h`.
 
+### Salida JSON
+
+Con `--json`, estos comandos emiten el resultado como JSON por la salida estándar, para usarlo desde scripts, ripley o dredd: `keymaker encrypt`, `keymaker pack`, `keymaker inspect`, `keymaker decrypt`, `keymaker unpack`, `keymaker gen-keys`, `keymaker sign`, `keymaker verify`, `keymaker split-secret`, `keymaker combine-shares`, `keymaker audit-passphrase`, `keymaker checksum`, `keymaker doctor`. El de `doctor --json` lleva `schema_version` y `ok`.
+
+### Códigos de salida
+
+| Código | Significado |
+|:--|:--|
+| `0` | Terminó bien (en `doctor`: está todo lo requerido). |
+| `1` | El comando encontró problemas (hallazgos, pruebas que fallan, un umbral que no se alcanza) o un dato no se pudo usar (un archivo ilegible, un formato inválido). |
+| `2` | Error de uso: comando, opción o argumento inválido. |
+
 <!-- p1:referencia:fin -->
